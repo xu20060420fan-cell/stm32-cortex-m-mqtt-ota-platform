@@ -204,13 +204,13 @@
 	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets"/>
 	<storageModule moduleId="refreshScope" versionNumber="2">
 		<configuration configurationName="Multiple configurations">
-			<resource resourceType="PROJECT" workspacePath="/6.4LCD3"/>
+			<resource resourceType="PROJECT" workspacePath="/STM32_MQTT_OTA_Node"/>
 		</configuration>
 		<configuration configurationName="Debug">
-			<resource resourceType="PROJECT" workspacePath="/6.4LCD3"/>
+			<resource resourceType="PROJECT" workspacePath="/STM32_MQTT_OTA_Node"/>
 		</configuration>
 		<configuration configurationName="Release">
-			<resource resourceType="PROJECT" workspacePath="/6.4LCD3"/>
+			<resource resourceType="PROJECT" workspacePath="/STM32_MQTT_OTA_Node"/>
 		</configuration>
 	</storageModule>
 	<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>

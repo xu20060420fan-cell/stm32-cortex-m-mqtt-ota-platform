@@ -609,7 +609,7 @@ int main(void)
    * 必须在调度器启动前做完，否则任务一起来就可能进 STOP，来不及报日志 */
   /* lp_init(); \u2014\u2014 \u4f4e\u529f\u8017\u6682\u65f6\u505c\u7528\uff08\u7528\u6237\u8981\u6c42\uff09 */
 
-  dbg_printf("\r\n\r\n===== 6.4LCD3 boot (uart1 115200) =====\r\n");
+  dbg_printf("\r\n\r\n===== STM32_MQTT_OTA_Node boot (uart1 115200) =====\r\n");
   dbg_printf("[APP] version=%s\r\n", app_version_str());
   dbg_report_reset_cause();   /* 为什么重启：复位脚/上电/看门狗/软件复位 */
 
@@ -1104,7 +1104,7 @@ void Error_Handler(void)
    * HSE 起不来、任何一个 MX_*_Init 返回非 HAL_OK 都会走进来，本工程有 9 个入口。
    * 现场没有调试器时现象就是"上电即死"，和芯片坏了根本分不开。
    *
-   * 现在：先把调用点地址打出来（拿它去 6.4LCD3.list / .map 里查是哪一个
+   * 现在：先把调用点地址打出来（拿它去 STM32_MQTT_OTA_Node.list / .map 里查是哪一个
    * MX_xxx_Init 失败的，不用猜），空转一会儿让日志发完，然后自复位。
    * 宁可反复重启、每一轮都留下一行原因，也不要永久冻住。
    *

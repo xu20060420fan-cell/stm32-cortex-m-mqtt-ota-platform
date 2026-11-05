@@ -20,9 +20,9 @@
  *                        不配的话主机模式下 MISO 悬空，读回来的全是 0x00/0xFF，
  *                        本驱动 nrf24_init() 里会自己补成 GPIO_MODE_AF_PP
  *   SPI2  MOSI = PB15    工程里已经配好
- *   CSN           = PB12   新加，6.4LCD3.ioc 里空闲
- *   CE            = PB9    新加，6.4LCD3.ioc 里空闲
- *   IRQ           = PB1    新加，6.4LCD3.ioc 里空闲（本驱动用轮询，不接也能跑）
+ *   CSN           = PB12   新加，STM32_MQTT_OTA_Node.ioc 里空闲
+ *   CE            = PB9    新加，STM32_MQTT_OTA_Node.ioc 里空闲
+ *   IRQ           = PB1    新加，STM32_MQTT_OTA_Node.ioc 里空闲（本驱动用轮询，不接也能跑）
  *
  *   接线提示：nRF24L01+ 模块 VCC=3.3V、GND 共地，CE/CSN 接 3.3V 逻辑。
  *             模块带 PA+LNA 时供电要能扛住 115mA 发射峰值。
