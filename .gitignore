@@ -1,0 +1,16 @@
+# 构建产物
+app/Debug/
+app/Release/
+bootloader/Debug/
+bootloader/Release/
+gateway/.pio/
+
+# 依赖与运行数据
+backend/node_modules/
+backend/data/
+backend/uploads/
+
+# 编辑器
+.vscode/
+.idea/
+*.launch

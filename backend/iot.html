@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>校园物联网控制台</title>
+<!--
+  校园物联网控制台（纯原生 HTML+CSS+JS，无框架、无构建）
+  ────────────────────────────────────────────────────────────
+  配色只用纯黑与纯白（含灰阶），**不引入任何彩色**：
+  语义状态（正常 / 告警 / 离线）靠「边框粗细 + 底纹深浅 + 实线/虚线」区分，
+  这样在黑白打印机、老旧 OLED 屏幕、色觉障碍场景下都能读。
+  鉴权复用现有后台的 X-Admin-Token（登录框 + localStorage）。
+-->
+<style>
+:root{
+  --ink:#000;
+  --paper:#fff;
+  --g1:#f2f2f2;
+  --g2:#d8d8d8;
+  --g3:#8a8a8a;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", "Microsoft YaHei", monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:13px;
+  line-height:1.6;
+  padding:16px;
+}
+/* ── 通用排版 ─────────────────────────────────────────── */
+h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.5px}
+h2{font-size:14px;margin:0 0 10px;font-weight:700;border-left:4px solid var(--ink);padding-left:8px}
+a{color:var(--ink)}
+.muted{color:var(--g3)}
+/* 遥测过期：读数还在，但已经不是实时值了 —— 用灰色 + 斜体标出来 */
+.stale{color:var(--g3);font-style:italic}
+.mono{font-family:var(--mono)}
+section{border:1px solid var(--ink);padding:14px;margin-bottom:14px}
+section>header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+
+/* ── 顶部条 ───────────────────────────────────────────── */
+#top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--ink);padding:10px 12px;margin-bottom:14px}
+#top .grow{flex:1 1 auto}
+
+/* ── 表单控件：白底 + 1px 纯黑描边，矩形无圆角 ─────────── */
+input,select,textarea{
+  font-family:var(--mono);font-size:13px;
+  background:var(--paper);color:var(--ink);
+  border:1px solid var(--ink);
+  border-radius:0;
+  padding:5px 7px;
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--ink);outline-offset:1px}
+input[type=file]{padding:4px}
+label{display:inline-block;min-width:96px;color:var(--g3)}
+
+/* ── 按钮：白底 + 1px 纯黑描边，hover 反色 ─────────────── */
+.btn{
+  font-family:var(--mono);font-size:13px;
+  background:var(--paper);color:var(--ink);
+  border:1px solid var(--ink);
+  border-radius:0;
+  padding:5px 12px;
+  cursor:pointer;
+}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn:active{background:var(--ink);color:var(--paper)}
+.btn[disabled]{border-color:var(--g3);color:var(--g3);cursor:not-allowed}
+.btn[disabled]:hover{background:var(--paper);color:var(--g3)}
+.btn.solid{background:var(--ink);color:var(--paper)}
+.btn.solid:hover{background:var(--paper);color:var(--ink)}
+
+/* ── 表格 ─────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{border:1px solid var(--ink);padding:4px 7px;text-align:left;vertical-align:top;white-space:nowrap}
+th{background:var(--ink);color:var(--paper);font-weight:700}
+tbody tr:nth-child(even){background:var(--g1)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow:auto;max-height:420px}
+/* ── 历史曲线：黑白灰阶，三条线用线型区分 ─────────────── */
+.hist-chart{border:1px solid var(--ink);padding:8px;margin-top:10px;background:var(--paper)}
+.hist-chart svg{display:block;width:100%;height:auto}
+.hist-chart .hist-axis{font-size:11px;fill:var(--g3)}
+.hist-chart .hist-name{font-size:12px;font-weight:700}
+
+/* ── 状态标记：靠边框粗细 / 底纹深浅 / 实线虚线区分 ─────── */
+.st{display:inline-block;padding:0 6px;border:1px solid var(--ink);background:var(--paper);color:var(--ink);font-size:12px}
+/* 正常：细实线 + 白底 */
+.st.ok{border-width:1px;border-style:solid}
+/* 告警：粗实线 + 中灰底纹（最醒目，仍是纯灰阶） */
+.st.warn{border-width:3px;border-style:solid;background:var(--g2);font-weight:700}
+/* 离线：虚线 + 白底 + 浅字（弱化但可辨） */
+.st.off{border-width:1px;border-style:dashed;color:var(--g3)}
+
+/* ── 统计条 ───────────────────────────────────────────── */
+.stats{display:flex;flex-wrap:wrap;gap:10px}
+.stat{border:1px solid var(--ink);padding:6px 12px;min-width:104px;background:var(--paper)}
+.stat b{display:block;font-size:20px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
+.stat span{color:var(--g3);font-size:11px}
+
+/* ── 栅格 ─────────────────────────────────────────────── */
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+.row>div{display:flex;flex-direction:column;gap:3px}
+.grow{flex:1 1 200px}
+
+/* ── 提示条 ───────────────────────────────────────────── */
+#msg{border:1px solid var(--ink);padding:8px 12px;margin-bottom:14px;white-space:pre-wrap}
+#msg.hide{display:none}
+#msg.err{background:var(--ink);color:var(--paper);font-weight:700}
+#msg.ok{background:var(--g1)}
+pre{border:1px solid var(--ink);padding:8px;margin:0;overflow:auto;max-height:160px;background:var(--g1);font-size:12px}
+hr{border:0;border-top:1px solid var(--ink);margin:12px 0}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <h1>校园物联网控制台</h1>
+  <span class="grow"></span>
+  <span class="muted" id="whoami">测试模式 · 免登录</span>
+  <button class="btn" id="refreshBtn">刷新</button>
+</div>
+
+<div id="msg" class="hide"></div>
+
+<section id="statSec">
+  <header><h2>总览</h2><span class="muted" id="statTime"></span></header>
+  <div class="stats" id="stats"></div>
+</section>
+
+<section>
+  <header>
+    <h2>设备总览</h2>
+    <span class="muted" id="devCount"></span>
+  </header>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>设备 ID</th><th>名称</th><th>分组</th><th>状态</th>
+          <th>温度℃</th><th>湿度%</th><th>气压hPa</th><th>姿态 X/Y/Z</th>
+          <th>电量%</th><th>固件<br><span class="muted">app / 网关</span></th><th>遥测时间</th><th>阈值</th><th>密钥</th>
+        </tr>
+      </thead>
+      <tbody id="devBody"><tr><td colspan="13" class="muted">暂无数据</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section id="histSec">
+  <header>
+    <h2>传感器历史</h2>
+    <span class="muted" id="histCount">选择设备后点「刷新历史」</span>
+  </header>
+  <div class="row">
+    <div class="grow"><label for="histDevice">设备</label><select id="histDevice"></select></div>
+    <div><label for="histRange">时间范围</label>
+      <select id="histRange">
+        <option value="300">最近 5 分钟</option>
+        <option value="1800">最近 30 分钟</option>
+        <option value="3600" selected>最近 1 小时</option>
+        <option value="0">全部</option>
+      </select>
+    </div>
+    <div><label for="histLimit">最多条数</label><input id="histLimit" type="number" value="600" min="10" max="1800" step="10" style="width:92px"></div>
+    <div><button class="btn solid" id="histLoad">刷新历史</button></div>
+  </div>
+  <div id="histChart" class="hist-chart muted">暂无历史数据</div>
+  <div class="scroll" style="max-height:320px;margin-top:10px">
+    <table>
+      <thead>
+        <tr><th>时间</th><th>温度℃</th><th>湿度%</th><th>气压hPa</th><th>姿态 X/Y/Z</th><th>电量%</th><th>状态</th></tr>
+      </thead>
+      <tbody id="histBody"><tr><td colspan="7" class="muted">暂无历史数据</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <header>
+    <h2>设备登记</h2>
+    <span class="muted">设备上报前必须先登记：设备 ID 与密钥要和固件里的一致，否则一律判「未授权」丢掉</span>
+  </header>
+  <div class="row">
+    <div><label for="regId">设备 ID</label><input id="regId" placeholder="dev01" size="12"></div>
+    <div><label for="regName">名称</label><input id="regName" placeholder="宿舍温湿度计" size="14"></div>
+    <div><label for="regGroup">分组</label><input id="regGroup" placeholder="dorm-a" size="12"></div>
+    <div><label for="regKey">设备密钥</label><input id="regKey" placeholder="照抄固件里的 DEVICE_KEY；留空=自动生成" size="30"></div>
+    <div><button class="btn solid" id="regSave">登记 / 更新</button></div>
+  </div>
+  <pre id="regState">固件里的设备 ID / 设备密钥原样填过来即可。</pre>
+</section>
+
+<section>
+  <header><h2>阈值配置</h2><span class="muted">后台下发的值会强制覆盖设备自报值</span></header>
+  <div class="row">
+    <div class="grow"><label for="thDevice">设备</label><select id="thDevice"></select></div>
+    <div><button class="btn" id="thLoad">读取阈值</button></div>
+    <div><button class="btn solid" id="thSave">下发阈值</button></div>
+  </div>
+  <div class="row" id="thFields"></div>
+  <pre id="thState">（未读取）</pre>
+</section>
+
+<section>
+  <header><h2>固件上传与下发</h2><span class="muted">只接受 .bin / .ota</span></header>
+  <div class="row">
+    <div><label for="fwFile">固件文件</label><input id="fwFile" type="file" accept=".bin,.ota"></div>
+    <div><label for="fwVersion">版本号</label><input id="fwVersion" size="12" placeholder="1.0.3"></div>
+    <div><label for="fwGroups">目标分组</label><input id="fwGroups" size="18" placeholder="dorm-a,dorm-b"></div>
+    <div><label for="fwNote">备注</label><input id="fwNote" size="18"></div>
+    <div><button class="btn" id="fwUpload">上传</button></div>
+  </div>
+  <hr>
+  <div class="row">
+    <div class="grow"><label for="otaFw">待下发固件</label><select id="otaFw"></select></div>
+    <div class="grow"><label for="otaDevices">设备 ID（逗号分隔，留空=按分组）</label><input id="otaDevices" placeholder="iot-dev-001,iot-dev-002"></div>
+    <div><label for="otaGroups">分组（逗号分隔）</label><input id="otaGroups" placeholder="dorm-a"></div>
+    <div><button class="btn solid" id="otaPush">下发升级</button></div>
+  </div>
+  <div class="scroll" style="margin-top:10px">
+    <table>
+      <thead><tr><th>文件</th><th>版本</th><th>大小</th><th>CRC32</th><th>sha256</th><th>分组</th><th>上传时间</th><th>下载链接</th></tr></thead>
+      <tbody id="fwBody"><tr><td colspan="8" class="muted">暂无固件</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <header><h2>事件日志</h2><span class="muted" id="evCount"></span></header>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>时间</th><th>设备</th><th>类型</th><th>级别</th><th>详情</th></tr></thead>
+      <tbody id="evBody"><tr><td colspan="5" class="muted">暂无事件</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+'use strict';
+/* ──────────────────────────────────────────────────────────────
+   后台会话：2026-10-31 起测试阶段不再需要口令。
+   页面直接可用，后端 IoT 管理路由也放行（IOT_REQUIRE_ADMIN=1 可切回）。
+   ────────────────────────────────────────────────────────────── */
+var TOKEN_KEY = 'iot_admin_token';
+var token = localStorage.getItem(TOKEN_KEY) || '';
+var devices = [];
+var fwItems = [];
+var thMeta = [];
+var timer = null;
+/* 当前已经拉过阈值的设备（换设备才重新拉，避免冲掉用户正在改的输入） */
+var thLoadedFor = '';
+/* 历史视图：当前设备与是否已经主动拉过一次 */
+var histLoadedFor = '';
+
+function $(id){ return document.getElementById(id); }
+
+function showMsg(text, kind){
+  var box = $('msg');
+  box.textContent = text || '';
+  box.className = text ? (kind || 'ok') : 'hide';
+}
+
+function api(path, opts){
+  opts = opts || {};
+  var headers = opts.headers || {};
+  /* 免登录模式下没有令牌；带上空的也不影响（后端已放行） */
+  if(token) headers['X-Admin-Token'] = token;
+  if(opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)){
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  /* 【必须禁缓存】浏览器对 GET 可能走 disk/memory cache，
+   * 后端数据已经变了，页面仍拿到旧响应 → 表现就是"不点刷新就不更新"。
+   * no-store 让每次 2 秒轮询都真正打到后端。 */
+  return fetch(path, { method: opts.method || 'GET', headers: headers, body: opts.body,
+                        cache: 'no-store', credentials: 'same-origin' })
+    .then(function(res){
+      if(res.status === 401){
+        throw new Error('接口返回 401（若已切回口令模式，请重新登录主后台）');
+      }
+      return res.json().catch(function(){ return { success:false, message:'响应解析失败' }; });
+    })
+    .then(function(json){
+      if(json && json.success === false) throw new Error(json.message || '请求失败');
+      return json;
+    });
+}
+
+/* 保留一个空实现：免登录后没有「退出」按钮，但旧代码/书签可能还调它 */
+function logout(){
+  token = '';
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+/* ── 渲染 ─────────────────────────────────────────────── */
+function fmtTime(v){
+  if(!v) return '-';
+  var d = new Date(v);
+  if(isNaN(d.getTime())) return String(v);
+  return d.toLocaleString('zh-CN', { hour12:false });
+}
+
+/* 状态语义统一成 offline / normal / alarm 三选一。
+ * 老数据里可能还留着 'online'，一律当成正常渲染。 */
+function statusCell(st){
+  if(st === 'alarm') return '<span class="st warn">告警</span>';
+  if(st === 'offline') return '<span class="st off">离线</span>';
+  if(st === 'normal' || st === 'online') return '<span class="st ok">正常</span>';
+  return '<span class="st off">离线</span>';
+}
+
+function num(v){
+  return (v === null || v === undefined || v === '') ? '-' : Number(v).toFixed(2);
+}
+
+/* 密钥默认遮罩，点一下才显示全文 */
+function maskKey(k){
+  if(!k) return '<span class="muted">未设置</span>';
+  var head = String(k).slice(0, 6);
+  var tail = String(k).slice(-4);
+  return '<span class="mono" data-key-show="' + esc(k) + '" title="点击显示/隐藏">' +
+         esc(head + '…' + tail) + '</span>';
+}
+
+function renderDevices(){
+  var body = $('devBody');
+  $('devCount').textContent = '共 ' + devices.length + ' 台';
+  if(!devices.length){
+    body.innerHTML = '<tr><td colspan="13" class="muted">' +
+      '暂无设备。设备必须先在下面「设备登记」里登记（设备 ID + 设备密钥），' +
+      '否则设备上报会被判成「未授权」而丢掉。</td></tr>';
+    renderDeviceSelect();
+    return;
+  }
+  var html = '';
+  for(var i=0;i<devices.length;i++){
+    var d = devices[i];
+    var s = d.sensors || {};
+    var latest = d.latest || null;
+    /* 优先用最新一条遥测；没有就退回设备表里存的那份 */
+    if(latest){
+      s = {
+        temp: latest.temp, hum: latest.hum, press: latest.press,
+        accX: latest.accX, accY: latest.accY, accZ: latest.accZ, batt: latest.batt
+      };
+    }
+    var att = [num(s.accX), num(s.accY), num(s.accZ)].join('/');
+    /* 【为什么时间列用 lastTelemetryAt 而不是 lastSeenAt】
+     *   lastSeenAt 会被「拉配置」这种纯心跳动作刷新 —— 设备每隔十几秒
+     *   拉一次阈值，时间列就一直在跳，但温度/湿度/气压那几列可能早就死了
+     *   （遥测没上来）。用户看到的就是「时间在变、读数冻住」，极难判断。
+     *   这里只认「最后一次遥测的时间」，没有遥测就明说没见过数据。 */
+    var tlmAt = d.lastTelemetryAt ? Date.parse(d.lastTelemetryAt) : 0;
+    var hasTlm = !isNaN(tlmAt) && tlmAt > 0;
+    var tlmCell = hasTlm
+      ? '<span title="' + esc('最后一次遥测：' + (d.lastTelemetryAt || '-')) + '">' +
+        esc(fmtTime(d.lastTelemetryAt)) + '</span>'
+      : '<span class="muted" title="' +
+        esc('设备在线，但从未上报过遥测（心跳时间：' + (d.lastSeenAt || '-') + ')') +
+        '">从未上报</span>';
+    var thState = d.thresholdsApplied
+      ? '<span class="st ok">已生效</span>'
+      : '<span class="st off">待设备拉取</span>';
+    /* 遥测过期（>30s 没上来）时把读数标灰 —— 别让旧值看起来像实时值 */
+    var stale = hasTlm && (Date.now() - tlmAt) > 30000;
+    var ncls = stale ? 'num stale' : 'num';
+    var staleTip = stale
+      ? ' title="' + esc('遥测已过期，' + Math.round((Date.now() - tlmAt) / 1000) + ' 秒没有新数据') + '"'
+      : '';
+    /* 固件版本：STM32 app 的版本 + ESP8266 网关自己的版本。
+     * 网关版本是设备拉 config 时自报的 —— 现场一眼就能看出
+     * 「板上 8266 到底刷的是哪一版」，不用再靠猜。 */
+    var fwCell = esc(d.firmwareVersion || '-');
+    if (d.gatewayVersion) {
+      fwCell = fwCell + '<br><span class="muted" title="ESP8266 网关固件版本">网关 ' +
+               esc(d.gatewayVersion) + '</span>';
+    } else {
+      fwCell = fwCell + '<br><span class="muted" title="设备没有上报网关版本，可能是旧固件">网关 未知</span>';
+    }
+    /* 升级指令的状态。
+     * 【为什么要显式显示"已放弃"】设备端连续失败 OTA_MAX_FAILURES 次后，
+     * 后台会把这条指令停发（active=false）—— 不显示出来的话，
+     * 操作员只会看到"下发了但没反应"，然后又去点一次下发。
+     * 现在写清楚：要重试就重新点一次"下发升级"（那会换一个新的指令号）。 */
+    if (d.pendingOta) {
+      if (d.pendingOta.active === false) {
+        fwCell = fwCell + '<br><span class="st off" title="' +
+                 esc(String(d.pendingOta.lastError || '')) +
+                 '">升级已放弃（失败 ' + Number(d.pendingOta.failures || 0) +
+                 ' 次），要重试请重新点下发</span>';
+      } else {
+        fwCell = fwCell + '<br><span class="muted">待升级 ' +
+                 esc(String(d.pendingOta.version || d.pendingOta.filename || '')) +
+                 (Number(d.pendingOta.failures || 0) > 0
+                   ? '（已失败 ' + Number(d.pendingOta.failures) + ' 次）' : '') +
+                 '</span>';
+      }
+    }
+    html += '<tr>'
+      + '<td>' + esc(d.deviceId) + '</td>'
+      + '<td>' + esc(d.name || '-') + '</td>'
+      + '<td>' + esc(d.group || '-') + '</td>'
+      + '<td>' + statusCell(d.status) + '</td>'
+      + '<td class="' + ncls + '"' + staleTip + '>' + num(s.temp) + '</td>'
+      + '<td class="' + ncls + '"' + staleTip + '>' + num(s.hum) + '</td>'
+      + '<td class="' + ncls + '"' + staleTip + '>' + num(s.press) + '</td>'
+      + '<td class="num">' + att + '</td>'
+      + '<td class="' + ncls + '"' + staleTip + '>' + num(s.batt) + '</td>'
+      + '<td>' + fwCell + '</td>'
+      + '<td>' + tlmCell + '</td>'
+      + '<td>' + thState + '</td>'
+      + '<td>' + maskKey(d.deviceKey) + '</td>'
+      + '</tr>';
+  }
+  body.innerHTML = html;
+
+  renderDeviceSelect();
+}
+
+/*
+ * 设备下拉（阈值 / 下发 / 历史共用）。
+ * 【为什么必须自动选中】
+ *   现在只有一台设备，让用户先去下拉里挑一遍纯属多余，
+ *   而且下拉为空时用户根本不知道该点什么 —— 直接自动选中在线的那台。
+ */
+function fillDeviceSelect(sel, keep){
+  sel.innerHTML = '';
+  if(!devices.length){
+    var empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '（暂无设备，请先登记）';
+    empty.disabled = true;
+    empty.selected = true;
+    sel.appendChild(empty);
+    return '';
+  }
+  for(var j=0;j<devices.length;j++){
+    var o = document.createElement('option');
+    o.value = devices[j].deviceId;
+    o.textContent = devices[j].deviceId + (devices[j].name ? ' · ' + devices[j].name : '') +
+                    (devices[j].online ? '（在线）' : '（离线）');
+    sel.appendChild(o);
+  }
+  /* 选谁：① 上次选的那个还在 → 留着；② 否则选在线的；③ 再否则选第一台 */
+  var picked = '';
+  var i;
+  if(keep){
+    for(i=0;i<devices.length;i++){ if(devices[i].deviceId === keep){ picked = keep; break; } }
+  }
+  if(!picked){
+    for(i=0;i<devices.length;i++){ if(devices[i].online){ picked = devices[i].deviceId; break; } }
+  }
+  if(!picked) picked = devices[0].deviceId;
+  sel.value = picked;
+  return picked;
+}
+
+function renderDeviceSelect(){
+  var picked = fillDeviceSelect($('thDevice'), $('thDevice').value);
+  fillDeviceSelect($('histDevice'), $('histDevice').value);
+  if(!devices.length) return;
+
+  /* 换了设备就把那一台的阈值拉出来显示（只在这台设备上拉一次，
+     不在每次刷新时重拉，否则会冲掉用户正在改的输入框） */
+  if(picked !== thLoadedFor){
+    thLoadedFor = picked;
+    loadThresholds(picked, true);
+  }
+  /* 历史区：第一台设备自动拉一次，之后由「刷新历史」或 10 秒慢刷新驱动 */
+  if(!histLoadedFor && picked){
+    histLoadedFor = picked;
+    loadHistory(true);
+  }
+}
+
+function esc(s){
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderStats(st){
+  var box = $('stats');
+  var items = [
+    ['设备总数', st.total],
+    ['在线', st.online],
+    ['告警', st.alarm],
+    ['离线', st.offline],
+    ['今日事件', st.todayEvents],
+    ['固件数', st.firmwareCount]
+  ];
+  var html = '';
+  for(var i=0;i<items.length;i++){
+    html += '<div class="stat"><b>' + esc(items[i][1]) + '</b><span>' + esc(items[i][0]) + '</span></div>';
+  }
+  if(st.firmwareDistribution && st.firmwareDistribution.length){
+    html += '<div class="stat" style="min-width:220px"><b>' + st.firmwareDistribution.length +
+            '</b><span>固件版本分布：' + st.firmwareDistribution.map(function(f){
+              return esc(f.version) + '×' + esc(f.count);
+            }).join(' / ') + '</span></div>';
+  }
+  if(st.mqtt){
+    html += '<div class="stat" style="min-width:180px"><b>' + (st.mqtt.connected ? 'ON' : (st.mqtt.enabled ? 'OFF' : '未启用')) +
+            '</b><span>MQTT' + (st.mqtt.lastError ? ' · ' + esc(st.mqtt.lastError) : '') + '</span></div>';
+  }
+  box.innerHTML = html;
+}
+
+function renderFirmware(){
+  var body = $('fwBody');
+  if(!fwItems.length){
+    body.innerHTML = '<tr><td colspan="8" class="muted">暂无固件</td></tr>';
+  }else{
+    var html = '';
+    for(var i=0;i<fwItems.length;i++){
+      var f = fwItems[i];
+      html += '<tr>'
+        + '<td>' + esc(f.filename) + '</td>'
+        + '<td>' + esc(f.version || '-') + '</td>'
+        + '<td class="num">' + esc(f.size) + ' B</td>'
+        + '<td class="mono">' + (f.crc32 != null ? '0x' + Number(f.crc32).toString(16).padStart(8,'0') : '-') + '</td>'
+        + '<td class="mono">' + esc(String(f.sha256 || '').slice(0,16)) + '…</td>'
+        + '<td>' + esc((f.groups || []).join(',') || '-') + '</td>'
+        + '<td>' + fmtTime(f.uploadedAt) + '</td>'
+        + '<td><button class="btn" data-link="' + esc(f.id) + '">生成链接</button></td>'
+        + '</tr>';
+    }
+    body.innerHTML = html;
+  }
+  var sel = $('otaFw');
+  var keep = sel.value;
+  sel.innerHTML = '';
+  for(var j=0;j<fwItems.length;j++){
+    var o = document.createElement('option');
+    o.value = fwItems[j].id;
+    o.textContent = fwItems[j].filename + (fwItems[j].version ? ' (v' + fwItems[j].version + ')' : '');
+    sel.appendChild(o);
+  }
+  if(keep) sel.value = keep;
+}
+
+function renderEvents(list){
+  var body = $('evBody');
+  $('evCount').textContent = '共 ' + list.length + ' 条';
+  if(!list.length){
+    body.innerHTML = '<tr><td colspan="5" class="muted">暂无事件</td></tr>';
+    return;
+  }
+  var html = '';
+  for(var i=0;i<list.length;i++){
+    var e = list[i];
+    var level = e.level === 'error' ? 'warn' : 'ok';
+    html += '<tr>'
+      + '<td>' + fmtTime(e.ts) + '</td>'
+      + '<td>' + esc(e.deviceId) + '</td>'
+      + '<td>' + esc(e.type) + '</td>'
+      + '<td><span class="st ' + level + '">' + esc(e.level) + '</span></td>'
+      + '<td>' + esc(e.detail || '') + '</td>'
+      + '</tr>';
+  }
+  body.innerHTML = html;
+}
+
+/* ── 传感器历史 ───────────────────────────────────────── */
+
+function fmtClock(v){
+  if(!v) return '-';
+  var d = new Date(v);
+  if(isNaN(d.getTime())) return String(v);
+  return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
+}
+
+function fmtAxis(v){
+  var n = Number(v);
+  if(!isFinite(n)) return '-';
+  return Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(1);
+}
+
+/* 单条曲线：黑白灰阶，三条曲线只用「实线 / 虚线 / 点线」区分 */
+function histChartBlock(chrono, key, name, dash){
+  var vals = [], i, v;
+  for(i=0;i<chrono.length;i++){
+    v = chrono[i][key];
+    if(v !== null && v !== undefined && isFinite(Number(v))) vals.push(Number(v));
+  }
+  if(!vals.length) return '<div class="muted" style="padding:4px 0">'+esc(name)+'：无数据</div>';
+
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if(lo === hi){ lo -= 1; hi += 1; }
+  var W = 760, H = 120, PL = 66, PR = 12, PT = 16, PB = 22;
+  var iw = W - PL - PR, ih = H - PT - PB;
+  var d = '', started = false, x, y;
+  for(i=0;i<chrono.length;i++){
+    v = chrono[i][key];
+    if(v === null || v === undefined || !isFinite(Number(v))){ started = false; continue; }
+    x = PL + (chrono.length < 2 ? iw/2 : (i/(chrono.length-1))*iw);
+    y = PT + ih - ((Number(v)-lo)/(hi-lo))*ih;
+    d += (started ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+    started = true;
+  }
+  var dashAttr = dash ? ' stroke-dasharray="' + dash + '"' : '';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '">'
+    + '<text class="hist-name" x="4" y="' + (PT+2) + '">' + esc(name) + '</text>'
+    + '<text class="hist-axis" x="' + (PL-6) + '" y="' + (PT+8) + '" text-anchor="end">' + fmtAxis(hi) + '</text>'
+    + '<text class="hist-axis" x="' + (PL-6) + '" y="' + (PT+ih) + '" text-anchor="end">' + fmtAxis(lo) + '</text>'
+    + '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + (PT+ih) + '" stroke="#000" stroke-width="1"/>'
+    + '<line x1="' + PL + '" y1="' + (PT+ih) + '" x2="' + (W-PR) + '" y2="' + (PT+ih) + '" stroke="#000" stroke-width="1"/>'
+    + '<path d="' + d + '" fill="none" stroke="#000" stroke-width="2"' + dashAttr + '/>'
+    + '<text class="hist-axis" x="' + PL + '" y="' + (H-6) + '">' + fmtClock(chrono[0].ts) + '</text>'
+    + '<text class="hist-axis" x="' + (W-PR) + '" y="' + (H-6) + '" text-anchor="end">' + fmtClock(chrono[chrono.length-1].ts) + '</text>'
+    + '</svg>';
+}
+
+function renderHistory(data){
+  var samples = data.samples || [];
+  var chart = $('histChart');
+  var body = $('histBody');
+  var period = data.intervalMs ? (Number(data.intervalMs)/1000) + ' 秒' : '未知';
+
+  if(!samples.length){
+    chart.className = 'hist-chart muted';
+    chart.innerHTML = '当前时间范围内没有遥测数据';
+    body.innerHTML = '<tr><td colspan="7" class="muted">当前时间范围内没有遥测数据</td></tr>';
+    $('histCount').textContent = '0 条 · 设备上报周期 ' + period;
+    return;
+  }
+
+  /* 接口按从新到旧返回；画图要按时间正序，表格仍按新到旧 */
+  var chrono = samples.slice().reverse();
+  chart.className = 'hist-chart';
+  chart.innerHTML =
+      histChartBlock(chrono, 'temp', '温度 ℃', '')
+    + histChartBlock(chrono, 'hum', '湿度 %RH', '6 3')
+    + histChartBlock(chrono, 'press', '气压 hPa', '2 4');
+
+  var html = '';
+  for(var i=0;i<samples.length;i++){
+    var s = samples[i];
+    var att = [num(s.accX), num(s.accY), num(s.accZ)].join('/');
+    html += '<tr>'
+      + '<td>' + fmtTime(s.ts) + '</td>'
+      + '<td class="num">' + num(s.temp) + '</td>'
+      + '<td class="num">' + num(s.hum) + '</td>'
+      + '<td class="num">' + num(s.press) + '</td>'
+      + '<td class="num">' + att + '</td>'
+      + '<td class="num">' + num(s.batt) + '</td>'
+      + '<td>' + statusCell(s.status) + '</td>'
+      + '</tr>';
+  }
+  body.innerHTML = html;
+  $('histCount').textContent = '显示 ' + samples.length + ' / ' + data.total +
+    ' 条 · 设备上报周期 ' + period + ' · 后台保留 ' + (data.keep || '-') + ' 条';
+}
+
+function loadHistory(quiet){
+  var id = $('histDevice').value;
+  if(!id){ if(!quiet) showMsg('历史区还没有可选的设备', 'err'); return Promise.resolve(); }
+
+  var limit = Math.max(10, Math.min(1800, Number($('histLimit').value) || 600));
+  var range = Number($('histRange').value) || 0;
+  var url = '/admin/api/iot/telemetry?deviceId=' + encodeURIComponent(id) + '&limit=' + limit;
+  if(range > 0){
+    url += '&from=' + encodeURIComponent(new Date(Date.now() - range*1000).toISOString());
+  }
+  return api(url).then(function(data){
+    renderHistory(data);
+    if(!quiet) showMsg('已刷新 ' + id + ' 的历史（' + (data.samples || []).length + ' 条）', 'ok');
+    return data;
+  }).catch(function(e){
+    $('histCount').textContent = '历史读取失败：' + (e.message || e);
+    if(!quiet) showMsg(e.message || String(e), 'err');
+  });
+}
+
+function renderThresholds(data){
+  thMeta = data.meta || [];
+  var box = $('thFields');
+  var html = '';
+  for(var i=0;i<thMeta.length;i++){
+    var m = thMeta[i];
+    var v = data.thresholds ? data.thresholds[m.key] : m.default;
+    /* 步进值跟后台的 meta 走：上报间隔的 step 是 0.5，
+       页面要是还写死 step="1"，浏览器就不让填 0.5 了。 */
+    var step = (m.step !== undefined && m.step !== null) ? m.step : 1;
+    var input = m.type === 'boolean'
+      ? '<select data-key="' + esc(m.key) + '"><option value="true"' + (v ? ' selected' : '') + '>开</option><option value="false"' + (!v ? ' selected' : '') + '>关</option></select>'
+      : '<input data-key="' + esc(m.key) + '" type="number" value="' + esc(v) + '" step="' + esc(step) + '"' +
+        (m.min !== undefined ? ' min="' + esc(m.min) + '"' : '') +
+        (m.max !== undefined ? ' max="' + esc(m.max) + '"' : '') + '>';
+    html += '<div><label>' + esc(m.label) + '</label>' + input + '</div>';
+  }
+  box.innerHTML = html;
+  /* 【2026-10-31】锁定/解锁概念整个去掉：这里就是一组直接生效的设置值。
+   * 报警语义：传感器任何一项超出这组阈值，设备端蜂鸣报警并上报事件。 */
+  /* 生效值回显：后台算出来的这一版 + 设备到底拉没拉走 */
+  var applied = data.applied
+    ? '已生效（设备 ' + fmtTime(data.appliedAt) + ' 拉取过这一版）'
+    : '待设备拉取（设备每 10s 轮询一次 /api/iot/config，在线时后台还会用 MQTT 直接推）';
+  /* 毫秒级的实际下发值：填 0.5 秒就要看到 500ms，别让人以为被改写了 */
+  var msTxt = data.reportIntervalMs
+    ? ('上报周期 ' + data.reportIntervalMs + ' ms')
+    : '';
+  $('thState').textContent = '生效值：' + JSON.stringify(data.thresholds) +
+    (msTxt ? '\n' + msTxt : '') +
+    '\n报警规则：任何一项超出上面的阈值，设备蜂鸣报警并上报事件' +
+    '\n下发状态：' + applied +
+    '\n设备上次拉取：' + fmtTime(data.appliedAt) +
+    (data.deviceOnline ? '' : '（设备当前离线：已保存，设备上线后 10 秒内自动取走）');
+}
+
+/* 拉阈值并渲染（quiet=true 时不弹提示，用于自动切换设备） */
+function loadThresholds(id, quiet){
+  if(!id) return Promise.resolve();
+  return api('/admin/api/iot/thresholds/' + encodeURIComponent(id)).then(function(data){
+    renderThresholds(data);
+    if(!quiet) showMsg('已读取 ' + id + ' 的阈值', 'ok');
+    return data;
+  }).catch(function(e){
+    if(!quiet) showMsg(e.message, 'err');
+  });
+}
+
+/* ── 数据拉取 ─────────────────────────────────────────── */
+/*
+ * 【为什么拆成两档】
+ *   设备读数/在线状态必须"实时"（2 秒一刷）；
+ *   固件列表和事件流水是低频的，2 秒一拉纯属浪费。
+ *   分开之后：读数 2 秒刷新，固件/事件 10 秒刷新。
+ */
+var lastSlowRefresh = 0;
+
+function refreshAll(){
+  var now = Date.now();
+  var slow = (now - lastSlowRefresh) >= 10000;
+  if(slow){ lastSlowRefresh = now; }
+
+  /* 【每个数据块独立容错】原来用 Promise.all + 整段 catch：
+   * /stats 一次 500 或某个接口超时，整页设备读数都不更新，
+   * 用户看到的就是"必须手动点一次刷新才动"。
+   * 现在 fast 两块各自 catch，互不阻塞；slow 两块同理。 */
+  var jobs = [
+    api('/admin/api/iot/devices').then(function(d){
+      devices = d.devices || [];
+      renderDevices();
+    }).catch(function(e){ showMsg('设备列表刷新失败：' + (e.message || e), 'err'); }),
+    api('/admin/api/iot/stats').then(function(s){
+      renderStats(s.stats || {});
+      $('statTime').textContent = '更新于 ' + fmtTime(new Date().toISOString());
+    }).catch(function(){ /* 统计失败不阻塞设备列表 */ })
+  ];
+  if(slow){
+    jobs.push(api('/admin/api/iot/firmware').then(function(f){
+      fwItems = f.items || [];
+      renderFirmware();
+    }).catch(function(e){ showMsg('固件列表刷新失败：' + (e.message || e), 'err'); }));
+    jobs.push(api('/admin/api/iot/events?limit=200').then(function(ev){
+      renderEvents(ev.events || []);
+    }).catch(function(e){ showMsg('事件刷新失败：' + (e.message || e), 'err'); }));
+    /* 历史视图跟着 10 秒慢刷新走：不抢 2 秒快刷新的带宽 */
+    if($('histDevice').value){ jobs.push(loadHistory(true)); }
+  }
+  return Promise.all(jobs).then(function(){ return true; });
+}
+
+/* ── 定时刷新 ─────────────────────────────────────────── */
+/*
+ * 【为什么 2 秒而不是 15 秒】
+ *   设备端 2 秒报一次遥测，后台再 15 秒才刷一次页面 ⇒ 页面上看到的
+ *   永远是 15 秒前的数据，"实时"就无从谈起。
+ *   设备上报周期现在可配到 0.5 秒，页面刷太慢就完全看不到变化。
+ *   2 秒轮询在几台设备的规模下完全扛得住。
+ *   页面不可见时（切到别的标签页）暂停轮询，省得后台白跑。
+ */
+function startTimer(){
+  stopTimer();
+  timer = setInterval(function(){
+    if(document.hidden) return;          /* 页面在后台就不刷 */
+    refreshAll();
+  }, 2000);
+}
+function stopTimer(){
+  if(timer){ clearInterval(timer); timer = null; }
+}
+
+/* 【切后台回来要立刻补一帧】定时器在 hidden 期间不刷，
+ * 但浏览器恢复可见时下一次 2 秒 tick 之前页面还是旧数据； 
+ * 严重的是某些浏览器会冻结后台标签的定时器，回来要等下一轮。
+ * 这里在可见性恢复/pageshow 时主动刷一次，避免"回来还得手动点"。 */
+document.addEventListener('visibilitychange', function(){
+  if(!document.hidden){ refreshAll(); }
+});
+window.addEventListener('pageshow', function(){ refreshAll(); });
+
+/* ── 事件绑定 ─────────────────────────────────────────── */
+$('refreshBtn').onclick = function(){ refreshAll(); };
+
+$('thDevice').onchange = function(){
+  thLoadedFor = this.value;
+  loadThresholds(this.value, true);
+};
+
+$('thLoad').onclick = function(){
+  var id = $('thDevice').value;
+  if(!id){ showMsg('先选一台设备', 'err'); return; }
+  thLoadedFor = id;
+  loadThresholds(id, false);
+};
+
+$('thSave').onclick = function(){
+  var id = $('thDevice').value;
+  if(!id){ showMsg('先选一台设备', 'err'); return; }
+  // 没读过阈值就直接保存 → 表单里没有字段，thMeta 是空的，等于白点一次。
+  // 这里先补读一次再保存，避免"点了没反应"。
+  var doSave = function(){
+    var payload = {};
+    var inputs = $('thFields').querySelectorAll('[data-key]');
+    for(var i=0;i<inputs.length;i++){
+      var key = inputs[i].getAttribute('data-key');
+      var val = inputs[i].value;
+      payload[key] = (inputs[i].tagName === 'SELECT') ? (val === 'true') : Number(val);
+    }
+    api('/admin/api/iot/thresholds/' + encodeURIComponent(id), { method:'POST', body:{ thresholds: payload } })
+      .then(function(data){
+        renderThresholds({ thresholds:data.thresholds, overrides:data.overrides, values:data.values,
+                           locked:data.locked, meta:thMeta, applied:data.applied, appliedAt:data.appliedAt,
+                           deviceOnline:data.deviceOnline, reportIntervalMs:data.reportIntervalMs });
+        showMsg('已下发阈值（改动 ' + data.changed + ' 项）。' +
+                '设备最多 ' + Math.round(data.effectiveAfterSec || 10) + ' 秒后生效，蜂鸣一声确认。' +
+                '任一项超出阈值即触发报警。' +
+                (data.reportIntervalMs ? '上报周期已设为 ' + data.reportIntervalMs + ' ms。' : ''), 'ok');
+        refreshAll();
+      }).catch(function(e){ showMsg(e.message, 'err'); });
+  };
+  if(!thMeta.length){
+    api('/admin/api/iot/thresholds/' + encodeURIComponent(id)).then(function(data){
+      renderThresholds(data);
+      doSave();
+    }).catch(function(e){ showMsg(e.message, 'err'); });
+    return;
+  }
+  doSave();
+};
+
+/* 设备登记 / 更新（密钥照抄固件里的 DEVICE_KEY） */
+$('regSave').onclick = function(){
+  var id = $('regId').value.trim();
+  if(!id){ showMsg('先填设备 ID', 'err'); return; }
+  var body = {
+    deviceId: id,
+    name: $('regName').value.trim(),
+    group: $('regGroup').value.trim(),
+    deviceKey: $('regKey').value.trim()
+  };
+  api('/admin/api/iot/devices', { method:'POST', body: body })
+    .then(function(data){
+      var key = (data.device && data.device.deviceKey) || '';
+      $('regKey').value = key;
+      $('regState').textContent = '已登记 ' + id + '\n设备密钥：' + key +
+        '\n把这串密钥填到固件的 DEVICE_KEY 里，两边对不上设备仍会被拒。';
+      showMsg('已登记设备 ' + id, 'ok');
+      refreshAll();
+    }).catch(function(e){ showMsg(e.message, 'err'); });
+};
+
+/* 密钥列：点一下显示 / 再点一下隐藏 */
+$('devBody').onclick = function(ev){
+  var el = ev.target && ev.target.getAttribute ? ev.target.getAttribute('data-key-show') : null;
+  if(!el) return;
+  var span = ev.target;
+  if(span.getAttribute('data-shown') === '1'){
+    span.textContent = String(el).slice(0, 6) + '…' + String(el).slice(-4);
+    span.setAttribute('data-shown', '0');
+  }else{
+    span.textContent = el;
+    span.setAttribute('data-shown', '1');
+  }
+};
+
+$('fwUpload').onclick = function(){
+  var input = $('fwFile');
+  if(!input.files || !input.files.length){ showMsg('先选一个固件文件', 'err'); return; }
+  var fd = new FormData();
+  fd.append('firmware', input.files[0]);
+  fd.append('version', $('fwVersion').value.trim());
+  fd.append('groups', $('fwGroups').value.trim());
+  fd.append('note', $('fwNote').value.trim());
+  api('/admin/api/iot/firmware', { method:'POST', body: fd })
+    .then(function(data){
+      showMsg('上传成功：' + data.firmware.filename + '（sha256 ' + String(data.firmware.sha256).slice(0,16) + '…）', 'ok');
+      input.value = '';
+      refreshAll();
+    }).catch(function(e){ showMsg(e.message, 'err'); });
+};
+
+$('fwBody').onclick = function(ev){
+  var btn = ev.target.closest ? ev.target.closest('button[data-link]') : null;
+  if(!btn) return;
+  api('/admin/api/iot/firmware/link?id=' + encodeURIComponent(btn.getAttribute('data-link')))
+    .then(function(data){
+      showMsg('下载链接（' + data.expiresInMs + ' ms 有效）：\n' + data.url, 'ok');
+    }).catch(function(e){ showMsg(e.message, 'err'); });
+};
+
+$('otaPush').onclick = function(){
+  var fwId = $('otaFw').value;
+  if(!fwId){ showMsg('先选一个固件', 'err'); return; }
+  var payload = { firmwareId: fwId };
+  var devs = $('otaDevices').value.trim();
+  var grps = $('otaGroups').value.trim();
+  if(devs) payload.deviceIds = devs.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if(grps) payload.groups = grps.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  api('/admin/api/iot/ota/push', { method:'POST', body: payload })
+    .then(function(data){
+      showMsg('已下发到 ' + data.targets.length + ' 台设备：' + data.targets.join(', '), 'ok');
+      refreshAll();
+    }).catch(function(e){ showMsg(e.message, 'err'); });
+};
+
+/* ── 历史视图事件 ─────────────────────────────────────── */
+$('histLoad').onclick = function(){ loadHistory(false); };
+$('histDevice').onchange = function(){
+  histLoadedFor = this.value;
+  loadHistory(true);
+};
+$('histRange').onchange = function(){ loadHistory(true); };
+$('histLimit').onchange = function(){ loadHistory(true); };
+
+/* ── 启动（测试阶段免登录，打开即用）───────────────────── */
+$('whoami').textContent = '测试模式 · 免登录';
+startTimer();
+refreshAll();
+</script>
+</body>
+</html>

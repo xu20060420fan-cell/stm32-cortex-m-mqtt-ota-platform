@@ -1,0 +1,19 @@
+##############################################################################
+# 构建后自动生成 bin 文件（由 cubeide_bin_hook 生成）
+#   输出位置：<工程根目录>/bin/<工程名>.bin
+#   本文件不会被 STM32CubeIDE 重新生成，重建/复制工程后依然有效
+##############################################################################
+
+BIN_DIR := ../bin
+
+.PHONY: post-build-bin
+
+# 必须依赖 $(EXECUTABLES)：CubeIDE 用 make -j 并行构建，
+# 不加依赖时 objcopy 会抢在 elf 链接完成前执行，报 "No such file"
+post-build-bin: $(EXECUTABLES)
+	@mkdir $(BIN_DIR) 2> /dev/null || exit 0
+	arm-none-eabi-objcopy -O binary $(BUILD_ARTIFACT) $(BIN_DIR)/$(BUILD_ARTIFACT_NAME).bin
+	@echo "已生成 bin 文件: bin/$(BUILD_ARTIFACT_NAME).bin"
+
+secondary-outputs: post-build-bin
+main-build: post-build-bin
